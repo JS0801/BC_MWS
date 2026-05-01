@@ -2,8 +2,6 @@
  * @NApiVersion 2.1
  * @NScriptType UserEventScript
  * @NModuleScope SameAccount
- *
- * Hide child record actions for Classic Center and Employee Center.
  */
 define(['N/ui/serverWidget', 'N/runtime', 'N/log'], (serverWidget, runtime, log) => {
 
@@ -35,15 +33,15 @@ define(['N/ui/serverWidget', 'N/runtime', 'N/log'], (serverWidget, runtime, log)
 
     // --- Configuration ---------------------------------------------------
     var SUBLISTS = [
-        'recmachcustrecord_bc_te_dailylog',  // Time Entry
-        'recmachcustrecord_bc_eq_dailylog',  // Equipment
-        'recmachcustrecord_bc_ue_dailylog'   // Unit Entry
+        'recmachcustrecord_bc_te_dailylog',
+        'recmachcustrecord_bc_eq_dailylog',
+        'recmachcustrecord_bc_ue_dailylog'
     ];
 
     var EXTRA_BUTTON_IDS = ['attach'];
     // ---------------------------------------------------------------------
 
-    // Existing Classic Center logic
+    // Existing Classic Center logic - unchanged
     function buildCssRules() {
         var selectors = [];
 
@@ -60,7 +58,7 @@ define(['N/ui/serverWidget', 'N/runtime', 'N/log'], (serverWidget, runtime, log)
         return selectors.join(',\\n') + ' { display: none !important; }';
     }
 
-    // Existing Classic Center logic
+    // Existing Classic Center logic - unchanged
     function injectStyle() {
         var existing = document.getElementById('hide-bc-dailylog-style');
         if (existing) return;
@@ -71,10 +69,10 @@ define(['N/ui/serverWidget', 'N/runtime', 'N/log'], (serverWidget, runtime, log)
 
         (document.head || document.documentElement).appendChild(style);
 
-        console.log(TAG, 'CSS rules injected');
+        console.log(TAG, 'Classic CSS rules injected');
     }
 
-    // Existing Classic Center logic
+    // Existing Classic Center logic - unchanged
     function hideDataCells() {
         var totals = {
             headersFound: 0,
@@ -109,136 +107,178 @@ define(['N/ui/serverWidget', 'N/runtime', 'N/log'], (serverWidget, runtime, log)
         return totals;
     }
 
+    // New Employee Center CSS
+    function buildEmployeeCenterCssRules() {
+        var selectors = [];
+
+        SUBLISTS.forEach(function (s) {
+            // New button wrapper and button
+            selectors.push('#tr_newrec' + s);
+            selectors.push('#newrec' + s);
+            selectors.push('[id="tr_newrec' + s + '"]');
+            selectors.push('[id="newrec' + s + '"]');
+            selectors.push('[name="newrec' + s + '"]');
+
+            // Edit / Remove headers
+            selectors.push('[data-nsps-id="columnheader_' + s + '_Custom_EDIT_raw"]');
+            selectors.push('[data-nsps-id="columnheader_' + s + '_REMOVE_raw"]');
+        });
+
+        // Attach wrapper and button
+        selectors.push('td[data-button-id="attach"]');
+        selectors.push('#tbl_attach');
+        selectors.push('#tr_attach');
+        selectors.push('#attach');
+        selectors.push('[name="attach"]');
+
+        return selectors.join(',\\n') + ' { display: none !important; visibility: hidden !important; pointer-events: none !important; }';
+    }
+
+    // New Employee Center CSS injection
+    function injectEmployeeCenterStyle() {
+        var existing = document.getElementById('hide-bc-dailylog-employee-center-style');
+        if (existing) return;
+
+        var style = document.createElement('style');
+        style.id = 'hide-bc-dailylog-employee-center-style';
+        style.textContent = buildEmployeeCenterCssRules();
+
+        (document.head || document.documentElement).appendChild(style);
+
+        console.log(TAG, 'Employee Center CSS rules injected');
+    }
+
     // New Employee Center logic
     function hideEmployeeCenterActions() {
         var totals = {
-            employeeNewButtonsHidden: 0,
-            employeeAttachHidden: 0,
-            employeeHeadersFound: 0,
-            employeeCellsHiddenThisPass: 0
+            newButtonsHidden: 0,
+            attachHidden: 0,
+            headersFound: 0,
+            cellsHiddenThisPass: 0
         };
 
-        function hideElement(el) {
+        function forceHide(el) {
             if (!el) return false;
 
-            if (el.style.display !== 'none') {
-                el.style.display = 'none';
-                el.style.visibility = 'hidden';
-                el.style.pointerEvents = 'none';
-                return true;
-            }
+            el.style.setProperty('display', 'none', 'important');
+            el.style.setProperty('visibility', 'hidden', 'important');
+            el.style.setProperty('pointer-events', 'none', 'important');
 
-            return false;
+            return true;
         }
 
         function hideColumnByHeader(header) {
             if (!header) return;
 
-            totals.employeeHeadersFound++;
+            totals.headersFound++;
 
             var colIndex = header.cellIndex;
             var table = header.closest('table');
+
+            forceHide(header);
 
             if (!table || colIndex < 0) return;
 
             table.querySelectorAll('tr').forEach(function (tr) {
                 var cell = tr.cells && tr.cells[colIndex];
 
-                if (cell && cell.style.display !== 'none') {
-                    cell.style.display = 'none';
-                    totals.employeeCellsHiddenThisPass++;
+                if (cell) {
+                    forceHide(cell);
+                    totals.cellsHiddenThisPass++;
                 }
             });
         }
 
         SUBLISTS.forEach(function (s) {
 
-            // Employee Center New button
-            // Example: newrecrecmachcustrecord_bc_te_dailylog
+            // Hide Employee Center New button wrapper
+            var newWrapper = document.getElementById('tr_newrec' + s);
+            if (forceHide(newWrapper)) {
+                totals.newButtonsHidden++;
+            }
+
+            // Hide Employee Center New button
             var newBtn = document.getElementById('newrec' + s);
-
-            if (hideElement(newBtn)) {
-                totals.employeeNewButtonsHidden++;
+            if (forceHide(newBtn)) {
+                totals.newButtonsHidden++;
             }
 
-            // Employee Center fallback by name
+            // Extra fallback by name
             var newBtnByName = document.querySelector('[name="newrec' + s + '"]');
-
-            if (hideElement(newBtnByName)) {
-                totals.employeeNewButtonsHidden++;
+            if (forceHide(newBtnByName)) {
+                totals.newButtonsHidden++;
             }
 
-            // Employee Center fallback by data-nsps-label
-            var newBtnByLabel = document.querySelector('[data-nsps-label^="New"][id="newrec' + s + '"]');
-
-            if (hideElement(newBtnByLabel)) {
-                totals.employeeNewButtonsHidden++;
-            }
-
-            // Employee Center Edit header
+            // Hide Edit column
             var editHeader = document.querySelector(
                 '[data-nsps-id="columnheader_' + s + '_Custom_EDIT_raw"]'
             );
-
             hideColumnByHeader(editHeader);
 
-            // Employee Center Remove header
+            // Hide Remove column
             var removeHeader = document.querySelector(
                 '[data-nsps-id="columnheader_' + s + '_REMOVE_raw"]'
             );
-
             hideColumnByHeader(removeHeader);
         });
 
-        // Employee Center Attach wrapper
+        // Hide Attach wrapper td
+        var attachTd = document.querySelector('td[data-button-id="attach"]');
+        if (forceHide(attachTd)) {
+            totals.attachHidden++;
+        }
+
+        // Hide Attach table wrapper
+        var attachTable = document.getElementById('tbl_attach');
+        if (forceHide(attachTable)) {
+            totals.attachHidden++;
+        }
+
+        // Hide Attach div wrapper
         var attachWrapper = document.getElementById('tr_attach');
-
-        if (hideElement(attachWrapper)) {
-            totals.employeeAttachHidden++;
+        if (forceHide(attachWrapper)) {
+            totals.attachHidden++;
         }
 
-        // Employee Center Attach button direct
+        // Hide Attach button
         var attachBtn = document.getElementById('attach');
-
-        if (hideElement(attachBtn)) {
-            totals.employeeAttachHidden++;
+        if (forceHide(attachBtn)) {
+            totals.attachHidden++;
         }
 
-        // Employee Center Attach button fallback by name
+        // Extra fallback by name
         var attachByName = document.querySelector('[name="attach"]');
-
-        if (hideElement(attachByName)) {
-            totals.employeeAttachHidden++;
+        if (forceHide(attachByName)) {
+            totals.attachHidden++;
         }
 
         return totals;
     }
 
-    // Combined apply function
     function applyAll(reason) {
-        injectStyle();
-
         // Existing Classic Center logic
-        var t = hideDataCells();
+        injectStyle();
+        var classicResult = hideDataCells();
 
         // New Employee Center logic
-        var emp = hideEmployeeCenterActions();
+        injectEmployeeCenterStyle();
+        var employeeResult = hideEmployeeCenterActions();
 
         if (
-            t.cellsHiddenThisPass > 0 ||
-            emp.employeeNewButtonsHidden > 0 ||
-            emp.employeeAttachHidden > 0 ||
-            emp.employeeCellsHiddenThisPass > 0
+            classicResult.cellsHiddenThisPass > 0 ||
+            employeeResult.newButtonsHidden > 0 ||
+            employeeResult.attachHidden > 0 ||
+            employeeResult.cellsHiddenThisPass > 0
         ) {
             console.log(TAG, 'apply (' + reason + ')', {
-                classicCenter: t,
-                employeeCenter: emp
+                classicCenter: classicResult,
+                employeeCenter: employeeResult
             });
         }
 
         return {
-            classicCenter: t,
-            employeeCenter: emp
+            classicCenter: classicResult,
+            employeeCenter: employeeResult
         };
     }
 
@@ -251,7 +291,7 @@ define(['N/ui/serverWidget', 'N/runtime', 'N/log'], (serverWidget, runtime, log)
         applyAll('immediate');
     }
 
-    // MutationObserver — re-hide data cells whenever DOM changes
+    // MutationObserver
     var debounceTimer = null;
 
     var observer = new MutationObserver(function () {
@@ -279,9 +319,9 @@ define(['N/ui/serverWidget', 'N/runtime', 'N/log'], (serverWidget, runtime, log)
 
     startObserver();
 
-    // Initial retries while page builds out
+    // Initial retries
     var tries = 0;
-    var maxTries = 20;
+    var maxTries = 30;
 
     var iv = setInterval(function () {
         tries++;
