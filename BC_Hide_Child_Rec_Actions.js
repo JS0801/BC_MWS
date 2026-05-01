@@ -24,6 +24,8 @@ define(['N/ui/serverWidget', 'N/runtime', 'N/log'], (serverWidget, runtime, log)
         }
 
         const form = context.form;
+        const newRec = context.newRecord;
+        if (!newRec/getValue('custrecord_bc_dl_completed')) return;
 
         const html = `
 <script>
