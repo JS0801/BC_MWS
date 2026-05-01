@@ -2,170 +2,344 @@
  * @NApiVersion 2.1
  * @NScriptType UserEventScript
  * @NModuleScope SameAccount
- *
- * For each configured sublist, hides:
- *   - The "New ..." button at the top of the sublist
- *   - The Edit column (header + every data cell)
- *   - The Remove column (header + every data cell)
- * Also hides the standalone "Attach" button.
- *
- * Survives tab switches / sublist re-renders via:
- *   - CSS rules injected into <head> (apply to any matching element forever)
- *   - A MutationObserver that re-hides data cells whenever DOM changes
- *
- * To add another sublist, append its sublist id to the SUBLISTS array.
- *
- * Logging:
- *   - Server: N/log entries in the Script Execution Log
- *   - Client: console.* messages prefixed with [HideBCDailyLog]
  */
 define(['N/ui/serverWidget', 'N/runtime', 'N/log'], (serverWidget, runtime, log) => {
 
     const TAG = 'HideBCDailyLog';
 
     const beforeLoad = (context) => {
-        log.debug({
-            title: TAG + ' beforeLoad entered',
-            details: {
-                eventType: context.type,
-                executionContext: runtime.executionContext,
-                recordType: context.newRecord && context.newRecord.type,
-                recordId: context.newRecord && context.newRecord.id
+        try {
+            log.debug({
+                title: TAG + ' beforeLoad entered',
+                details: {
+                    eventType: context.type,
+                    executionContext: runtime.executionContext,
+                    recordType: context.newRecord && context.newRecord.type,
+                    recordId: context.newRecord && context.newRecord.id
+                }
+            });
+
+            if (runtime.executionContext !== runtime.ContextType.USER_INTERFACE) {
+                log.debug(TAG, 'Skipping: not UI context');
+                return;
             }
-        });
 
-        if (runtime.executionContext !== runtime.ContextType.USER_INTERFACE) {
-            log.debug(TAG, 'Skipping: not a UI context (' + runtime.executionContext + ')');
-            return;
-        }
+            const form = context.form;
 
-        const form = context.form;
-
-        const html = `
+            const html = `
 <script>
 (function () {
     var TAG = '[HideBCDailyLog]';
-    console.log(TAG, 'inline script loaded at', new Date().toISOString(), 'readyState=', document.readyState);
+    console.log(TAG, 'script loaded', new Date().toISOString());
 
-    // --- Configuration ---------------------------------------------------
     var SUBLISTS = [
-        'recmachcustrecord_bc_te_dailylog',  // Time Entry
-        'recmachcustrecord_bc_eq_dailylog',  // Equipment
-        'recmachcustrecord_bc_ue_dailylog'   // Unit Entry
+        'recmachcustrecord_bc_te_dailylog',
+        'recmachcustrecord_bc_eq_dailylog',
+        'recmachcustrecord_bc_ue_dailylog'
     ];
-    var EXTRA_BUTTON_IDS = ['attach'];
-    // ---------------------------------------------------------------------
 
-    // Build CSS selectors that survive tab re-renders.
-    // Buttons and column headers have stable IDs / data-nsps-id, so CSS handles them.
-    function buildCssRules() {
-        var selectors = [];
-        SUBLISTS.forEach(function (s) {
-            selectors.push('#newrec' + s);
-            selectors.push('[data-nsps-id="columnheader_' + s + '_Custom_EDIT_raw"]');
-            selectors.push('[data-nsps-id="columnheader_' + s + '_REMOVE_raw"]');
-        });
-        EXTRA_BUTTON_IDS.forEach(function (id) {
-            selectors.push('#' + id);
-        });
-        return selectors.join(',\\n') + ' { display: none !important; }';
+    var EXTRA_BUTTON_IDS = ['attach'];
+
+    function hideElement(el) {
+        if (!el) return false;
+
+        el.style.display = 'none';
+        el.style.visibility = 'hidden';
+        el.style.pointerEvents = 'none';
+
+        return true;
     }
 
-    function injectStyle() {
-        var existing = document.getElementById('hide-bc-dailylog-style');
-        if (existing) return;
+    function safeText(el) {
+        if (!el) return '';
+        return (el.innerText || el.textContent || el.value || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+    }
+
+    function containsSublistId(el, sublistId) {
+        if (!el) return false;
+
+        var cur = el;
+        var count = 0;
+
+        while (cur && count < 12) {
+            var id = cur.id || '';
+            var nsps = cur.getAttribute && (
+                cur.getAttribute('data-nsps-id') ||
+                cur.getAttribute('name') ||
+                cur.getAttribute('data-name') ||
+                ''
+            );
+
+            if (id.indexOf(sublistId) !== -1 || nsps.indexOf(sublistId) !== -1) {
+                return true;
+            }
+
+            cur = cur.parentNode;
+            count++;
+        }
+
+        return false;
+    }
+
+    function hideNewButtons() {
+        var hidden = 0;
+
+        for (var i = 0; i < SUBLISTS.length; i++) {
+            var s = SUBLISTS[i];
+
+            var selectors = [
+                '#newrec' + s,
+                '#new' + s,
+                '[id="newrec' + s + '"]',
+                '[id*="newrec' + s + '"]',
+                '[id*="' + s + '"][id*="new"]',
+                '[data-nsps-id*="' + s + '"][data-nsps-id*="new"]'
+            ];
+
+            for (var x = 0; x < selectors.length; x++) {
+                var els = document.querySelectorAll(selectors[x]);
+                for (var e = 0; e < els.length; e++) {
+                    if (hideElement(els[e])) hidden++;
+                }
+            }
+
+            var btns = document.querySelectorAll('input, button, a');
+            for (var b = 0; b < btns.length; b++) {
+                var txt = safeText(btns[b]);
+
+                if (
+                    containsSublistId(btns[b], s) &&
+                    (
+                        txt === 'new' ||
+                        txt.indexOf('new ') === 0 ||
+                        txt.indexOf('add') === 0
+                    )
+                ) {
+                    if (hideElement(btns[b])) hidden++;
+                }
+            }
+        }
+
+        return hidden;
+    }
+
+    function hideAttachButton() {
+        var hidden = 0;
+
+        for (var i = 0; i < EXTRA_BUTTON_IDS.length; i++) {
+            var byId = document.getElementById(EXTRA_BUTTON_IDS[i]);
+            if (hideElement(byId)) hidden++;
+        }
+
+        var els = document.querySelectorAll('input, button, a');
+        for (var x = 0; x < els.length; x++) {
+            var txt = safeText(els[x]);
+
+            if (txt === 'attach') {
+                if (hideElement(els[x])) hidden++;
+            }
+        }
+
+        return hidden;
+    }
+
+    function findHeaderByNsps(sublistId, columnKey) {
+        var possibleIds = [];
+
+        if (columnKey === 'edit') {
+            possibleIds = [
+                'columnheader_' + sublistId + '_Custom_EDIT_raw',
+                'columnheader_' + sublistId + '_EDIT_raw',
+                'columnheader_' + sublistId + '_EDIT',
+                'columnheader_' + sublistId + '_Custom_EDIT'
+            ];
+        }
+
+        if (columnKey === 'remove') {
+            possibleIds = [
+                'columnheader_' + sublistId + '_REMOVE_raw',
+                'columnheader_' + sublistId + '_REMOVE'
+            ];
+        }
+
+        for (var i = 0; i < possibleIds.length; i++) {
+            var header = document.querySelector('[data-nsps-id="' + possibleIds[i] + '"]');
+            if (header) return header;
+        }
+
+        return null;
+    }
+
+    function hideColumnByHeader(header) {
+        if (!header) return 0;
+
+        var colIndex = header.cellIndex;
+        var table = header.closest ? header.closest('table') : null;
+
+        if (!table || colIndex < 0) return 0;
+
+        var hidden = 0;
+        var rows = table.querySelectorAll('tr');
+
+        for (var r = 0; r < rows.length; r++) {
+            var cell = rows[r].cells && rows[r].cells[colIndex];
+
+            if (cell) {
+                if (hideElement(cell)) hidden++;
+            }
+        }
+
+        return hidden;
+    }
+
+    function hideColumnsByNsps() {
+        var hidden = 0;
+
+        for (var i = 0; i < SUBLISTS.length; i++) {
+            var s = SUBLISTS[i];
+
+            hidden += hideColumnByHeader(findHeaderByNsps(s, 'edit'));
+            hidden += hideColumnByHeader(findHeaderByNsps(s, 'remove'));
+        }
+
+        return hidden;
+    }
+
+    function hideColumnsByTextFallback() {
+        var hidden = 0;
+        var headers = document.querySelectorAll('th, td');
+
+        for (var i = 0; i < headers.length; i++) {
+            var txt = safeText(headers[i]);
+
+            if (txt !== 'edit' && txt !== 'remove') {
+                continue;
+            }
+
+            for (var s = 0; s < SUBLISTS.length; s++) {
+                if (containsSublistId(headers[i], SUBLISTS[s])) {
+                    hidden += hideColumnByHeader(headers[i]);
+                    break;
+                }
+            }
+        }
+
+        return hidden;
+    }
+
+    function injectCss() {
+        if (document.getElementById('hide-bc-dailylog-style')) {
+            return;
+        }
+
+        var css = '';
+
+        for (var i = 0; i < SUBLISTS.length; i++) {
+            var s = SUBLISTS[i];
+
+            css += '#newrec' + s + ' { display:none !important; }\\n';
+            css += '#new' + s + ' { display:none !important; }\\n';
+            css += '[id*="newrec' + s + '"] { display:none !important; }\\n';
+            css += '[data-nsps-id="columnheader_' + s + '_Custom_EDIT_raw"] { display:none !important; }\\n';
+            css += '[data-nsps-id="columnheader_' + s + '_EDIT_raw"] { display:none !important; }\\n';
+            css += '[data-nsps-id="columnheader_' + s + '_REMOVE_raw"] { display:none !important; }\\n';
+        }
+
+        css += '#attach { display:none !important; }\\n';
+
         var style = document.createElement('style');
         style.id = 'hide-bc-dailylog-style';
-        style.textContent = buildCssRules();
-        (document.head || document.documentElement).appendChild(style);
-        console.log(TAG, 'CSS rules injected');
-    }
+        style.type = 'text/css';
+        style.appendChild(document.createTextNode(css));
 
-    // Data cells in the sublist rows have no stable selector — we have to find
-    // them by header cellIndex and hide them in JS.
-    function hideDataCells() {
-        var totals = { headersFound: 0, cellsHiddenThisPass: 0 };
-        SUBLISTS.forEach(function (s) {
-            ['Custom_EDIT_raw', 'REMOVE_raw'].forEach(function (suffix) {
-                var nspsId = 'columnheader_' + s + '_' + suffix;
-                var header = document.querySelector('[data-nsps-id="' + nspsId + '"]');
-                if (!header) return;
-                totals.headersFound++;
-                var colIndex = header.cellIndex;
-                var table = header.closest('table');
-                if (!table || colIndex < 0) return;
-                table.querySelectorAll('tr').forEach(function (tr) {
-                    var cell = tr.cells && tr.cells[colIndex];
-                    if (cell && cell !== header && cell.style.display !== 'none') {
-                        cell.style.display = 'none';
-                        totals.cellsHiddenThisPass++;
-                    }
-                });
-            });
-        });
-        return totals;
+        (document.head || document.documentElement).appendChild(style);
     }
 
     function applyAll(reason) {
-        injectStyle();
-        var t = hideDataCells();
-        if (t.cellsHiddenThisPass > 0) {
-            console.log(TAG, 'apply (' + reason + ')', t);
+        injectCss();
+
+        var result = {
+            reason: reason,
+            newButtonsHidden: hideNewButtons(),
+            attachHidden: hideAttachButton(),
+            nspsColumnsHidden: hideColumnsByNsps(),
+            fallbackColumnsHidden: hideColumnsByTextFallback()
+        };
+
+        if (
+            result.newButtonsHidden > 0 ||
+            result.attachHidden > 0 ||
+            result.nspsColumnsHidden > 0 ||
+            result.fallbackColumnsHidden > 0
+        ) {
+            console.log(TAG, 'applied', result);
         }
-        return t;
+
+        return result;
     }
 
-    // First run
+    function start() {
+        applyAll('start');
+
+        var tries = 0;
+        var maxTries = 40;
+
+        var interval = setInterval(function () {
+            tries++;
+            applyAll('retry-' + tries);
+
+            if (tries >= maxTries) {
+                clearInterval(interval);
+            }
+        }, 250);
+
+        var observerTimer = null;
+
+        var observer = new MutationObserver(function () {
+            if (observerTimer) return;
+
+            observerTimer = setTimeout(function () {
+                observerTimer = null;
+                applyAll('mutation');
+            }, 100);
+        });
+
+        if (document.body) {
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+
+            console.log(TAG, 'MutationObserver started');
+        }
+    }
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () { applyAll('DOMContentLoaded'); });
+        document.addEventListener('DOMContentLoaded', start);
     } else {
-        applyAll('immediate');
+        start();
     }
 
-    // MutationObserver — re-hide data cells whenever the DOM changes
-    // (tab switches, inline-edit row inserts, sublist refreshes, etc.).
-    // Debounced so we don't run on every keystroke.
-    var debounceTimer = null;
-    var observer = new MutationObserver(function (mutations) {
-        if (debounceTimer) return;
-        debounceTimer = setTimeout(function () {
-            debounceTimer = null;
-            applyAll('mutation');
-        }, 50);
-    });
-
-    function startObserver() {
-        if (!document.body) {
-            setTimeout(startObserver, 50);
-            return;
-        }
-        observer.observe(document.body, { childList: true, subtree: true });
-        console.log(TAG, 'MutationObserver started');
-    }
-    startObserver();
-
-    // Initial retries while the page builds out (in case observer misses the
-    // very first paint or the body wasn't ready yet).
-    var tries = 0;
-    var maxTries = 20;
-    var iv = setInterval(function () {
-        tries++;
-        applyAll('retry-' + tries);
-        if (tries >= maxTries) clearInterval(iv);
-    }, 250);
 })();
 </script>
-        `;
+            `;
 
-        const inline = form.addField({
-            id: 'custpage_hide_bc_dailylog_ui',
-            type: serverWidget.FieldType.INLINEHTML,
-            label: ' '
-        });
-        inline.defaultValue = html;
+            const inline = form.addField({
+                id: 'custpage_hide_bc_dailylog_ui',
+                type: serverWidget.FieldType.INLINEHTML,
+                label: ' '
+            });
 
-        log.debug(TAG, 'inline HTML field injected');
+            inline.defaultValue = html;
+
+            log.debug(TAG, 'inline HTML field injected');
+
+        } catch (e) {
+            log.error(TAG + ' beforeLoad error', e);
+        }
     };
 
-    return { beforeLoad };
+    return {
+        beforeLoad: beforeLoad
+    };
 });
